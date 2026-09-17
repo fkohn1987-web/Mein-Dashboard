@@ -6,7 +6,6 @@ import {
   MapPin,
   ShieldCheck,
 } from "lucide-react";
-import Image from "next/image";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -31,7 +30,7 @@ export default async function LoginPage() {
       <section className="login-shell" aria-labelledby="login-title">
         <div className="login-brand">
           <span className="login-brand__mark" aria-hidden="true">
-            <Image className="login-brand__logo" src="/dashboard-logo.svg" alt="" width={43} height={43} priority />
+            <span className="login-brand__logo" aria-hidden="true" />
           </span>
           <div>
             <p className="eyebrow">Persönliches Dashboard</p>

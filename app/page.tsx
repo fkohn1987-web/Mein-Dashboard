@@ -27,7 +27,6 @@ import {
   Wind,
   X,
 } from "lucide-react";
-import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -38,6 +37,7 @@ type CountryCode = "DE" | "IT" | "CH" | "AT";
 type PlaceCountry = CountryCode | "LOC";
 type FavoriteSlot = "home" | "work";
 type WeatherStatus = "loading" | "ready" | "partial" | "unavailable";
+type NowcastStatus = "ready" | "partial" | "unavailable";
 type SearchStatus = "idle" | "loading" | "ready" | "error";
 type SyncStatus = "loading" | "ready" | "signed-out" | "unavailable";
 
@@ -86,6 +86,15 @@ type DaySummary = {
   sunset: string;
 };
 
+type NowcastPoint = {
+  time: string;
+  precipitationMm: number | null;
+  rainMm: number | null;
+  showersMm: number | null;
+  snowfallCm: number | null;
+  weatherCode: number;
+};
+
 type WeatherSnapshot = {
   place: Place;
   fetchedAt: string;
@@ -93,6 +102,8 @@ type WeatherSnapshot = {
   current: CurrentWeather | null;
   hourly: HourPoint[];
   daily: DaySummary[];
+  nowcast: NowcastPoint[];
+  nowcastStatus: NowcastStatus;
   error?: string;
 };
 
@@ -227,6 +238,11 @@ function numberAt(value: unknown, index: number, fallback = 0) {
   return typeof item === "number" && Number.isFinite(item) ? item : fallback;
 }
 
+function nullableNumberAt(value: unknown, index: number): number | null {
+  const item = Array.isArray(value) ? value[index] : value;
+  return typeof item === "number" && Number.isFinite(item) ? item : null;
+}
+
 function stringAt(value: unknown, index: number, fallback = "") {
   const item = Array.isArray(value) ? value[index] : value;
   return typeof item === "string" ? item : fallback;
@@ -285,6 +301,10 @@ function formatTemperature(value: number | null | undefined) {
   return typeof value === "number" && Number.isFinite(value) ? `${Math.round(value)}°` : "–";
 }
 
+function formatMillimeters(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)} mm` : "Nicht verfügbar";
+}
+
 function formatTime(value: string, timezone?: string) {
   if (!value) return "–";
   const parsed = new Date(value.includes("Z") ? value : `${value}:00`);
@@ -304,6 +324,11 @@ function formatCoordinates(latitude: number, longitude: number) {
 
 function getPlaceLabel(place: Place) {
   return place.source === "geolocation" ? "Mein Standort" : place.name;
+}
+
+function rainNowcastAmount(point: NowcastPoint) {
+  if (point.rainMm === null || point.showersMm === null) return null;
+  return point.rainMm + point.showersMm;
 }
 
 function searchUrl(query: string, countryCode: CountryCode) {
@@ -331,7 +356,7 @@ async function searchLocations(query: string, countryFilter: CountryCode | "all"
 }
 
 function buildForecastUrl(place: Place) {
-  const params = new URLSearchParams({ latitude: String(place.latitude), longitude: String(place.longitude), current: "temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,is_day", hourly: "temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m", daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,sunrise,sunset", forecast_days: "7", forecast_hours: "24", timezone: "auto", temperature_unit: "celsius", wind_speed_unit: "kmh", precipitation_unit: "mm" });
+  const params = new URLSearchParams({ latitude: String(place.latitude), longitude: String(place.longitude), current: "temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m,is_day", minutely_15: "precipitation,rain,showers,snowfall,weather_code", hourly: "temperature_2m,precipitation_probability,precipitation,weather_code,wind_speed_10m", daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,sunrise,sunset", forecast_days: "7", forecast_hours: "168", forecast_minutely_15: "8", timezone: "auto", temperature_unit: "celsius", wind_speed_unit: "kmh", precipitation_unit: "mm" });
   return `${FORECAST_URL}?${params.toString()}`;
 }
 
@@ -340,16 +365,20 @@ async function fetchWeather(place: Place, signal?: AbortSignal): Promise<Weather
   if (!response.ok) throw new Error("Live-Daten nicht erreichbar");
   const payload = (await response.json()) as Record<string, unknown>;
   const current = payload.current as Record<string, unknown> | undefined;
+  const minutely = payload.minutely_15 as Record<string, unknown> | undefined;
   const hourly = payload.hourly as Record<string, unknown> | undefined;
   const daily = payload.daily as Record<string, unknown> | undefined;
   const currentTime = typeof current?.time === "string" ? current.time : "";
+  const nowcastTimes = Array.isArray(minutely?.time) ? minutely.time : [];
   const hourlyTimes = Array.isArray(hourly?.time) ? hourly.time : [];
   const dailyTimes = Array.isArray(daily?.time) ? daily.time : [];
   const currentData: CurrentWeather | null = currentTime ? { time: currentTime, temperatureC: numberAt(current?.temperature_2m, 0), feelsLikeC: numberAt(current?.apparent_temperature, 0), weatherCode: numberAt(current?.weather_code, 0, -1), precipitationMm: numberAt(current?.precipitation, 0), windKmh: numberAt(current?.wind_speed_10m, 0), windDirectionDeg: numberAt(current?.wind_direction_10m, 0), isDay: numberAt(current?.is_day, 0, 1) === 1 } : null;
-  const hourlyData: HourPoint[] = hourlyTimes.slice(0, 24).map((time, index) => ({ time: String(time), temperatureC: numberAt(hourly?.temperature_2m, index), precipitationProbabilityPct: numberAt(hourly?.precipitation_probability, index), precipitationMm: numberAt(hourly?.precipitation, index), weatherCode: numberAt(hourly?.weather_code, index, -1), windKmh: numberAt(hourly?.wind_speed_10m, index) }));
+  const nowcastData: NowcastPoint[] = nowcastTimes.slice(0, 8).map((time, index) => ({ time: String(time), precipitationMm: nullableNumberAt(minutely?.precipitation, index), rainMm: nullableNumberAt(minutely?.rain, index), showersMm: nullableNumberAt(minutely?.showers, index), snowfallCm: nullableNumberAt(minutely?.snowfall, index), weatherCode: numberAt(minutely?.weather_code, index, -1) }));
+  const hourlyData: HourPoint[] = hourlyTimes.slice(0, 168).map((time, index) => ({ time: String(time), temperatureC: numberAt(hourly?.temperature_2m, index), precipitationProbabilityPct: numberAt(hourly?.precipitation_probability, index), precipitationMm: numberAt(hourly?.precipitation, index), weatherCode: numberAt(hourly?.weather_code, index, -1), windKmh: numberAt(hourly?.wind_speed_10m, index) }));
   const dailyData: DaySummary[] = dailyTimes.slice(0, 7).map((date, index) => ({ date: String(date), minC: numberAt(daily?.temperature_2m_min, index), maxC: numberAt(daily?.temperature_2m_max, index), precipitationProbabilityPct: numberAt(daily?.precipitation_probability_max, index), precipitationMm: numberAt(daily?.precipitation_sum, index), weatherCode: numberAt(daily?.weather_code, index, -1), sunrise: stringAt(daily?.sunrise, index), sunset: stringAt(daily?.sunset, index) }));
-  const status: WeatherStatus = currentData && hourlyData.length && dailyData.length ? "ready" : currentData || hourlyData.length || dailyData.length ? "partial" : "unavailable";
-  return { place: { ...place, timezone: typeof payload.timezone === "string" ? payload.timezone : place.timezone }, fetchedAt: new Date().toISOString(), status, current: currentData, hourly: hourlyData, daily: dailyData };
+  const nowcastStatus: NowcastStatus = nowcastData.length === 8 && nowcastData.every((point) => point.precipitationMm !== null && point.rainMm !== null && point.showersMm !== null && point.snowfallCm !== null) ? "ready" : nowcastData.length ? "partial" : "unavailable";
+  const status: WeatherStatus = currentData && hourlyData.length && dailyData.length && nowcastStatus === "ready" ? "ready" : currentData || hourlyData.length || dailyData.length || nowcastData.length ? "partial" : "unavailable";
+  return { place: { ...place, timezone: typeof payload.timezone === "string" ? payload.timezone : place.timezone }, fetchedAt: new Date().toISOString(), status, current: currentData, hourly: hourlyData, daily: dailyData, nowcast: nowcastData, nowcastStatus };
 }
 
 function weatherStatusText(status: WeatherStatus) {
@@ -364,6 +393,43 @@ function syncStatusText(status: SyncStatus) {
   if (status === "ready") return "Geräteübergreifend synchronisiert";
   if (status === "signed-out") return "Nur dieses Gerät · Anmeldung nötig";
   return "Cloud-Speicher nicht erreichbar";
+}
+
+function RainNowcastPanel({ weather }: { weather: WeatherSnapshot | null }) {
+  const points = weather?.nowcast ?? [];
+  const isLoading = weather?.status === "loading";
+  const isReady = weather?.nowcastStatus === "ready" && points.length > 0;
+
+  return (
+    <section className="nowcast-panel" aria-labelledby="nowcast-title">
+      <div className="section-heading section-heading--compact">
+        <div><p className="eyebrow">Niederschlag</p><h2 id="nowcast-title">Regen-Nowcast</h2></div>
+        <span className="section-count">nächste 2 Stunden · 15 min</span>
+      </div>
+      {isLoading ? <div className="nowcast-empty"><RefreshCw size={16} className="spin" /> Niederschlagsdaten werden geladen …</div> : isReady ? <div className="nowcast-scroll">{points.map((point, index) => { const condition = weatherCondition(point.weatherCode); const rainAmount = rainNowcastAmount(point); return <div className={`nowcast-card nowcast-card--${condition.tone}`} key={`${point.time}-${index}`}><span className="nowcast-time">{index === 0 ? "Jetzt" : formatTime(point.time, weather?.place.timezone)}</span><span className="nowcast-icon" title={condition.label}><WeatherIcon code={point.weatherCode} isDay={weather?.current?.isDay ?? true} size={22} /></span><strong>{formatMillimeters(rainAmount)}</strong><span className="nowcast-label">Regen</span>{point.snowfallCm !== null && point.snowfallCm > 0 ? <small>{point.snowfallCm.toFixed(1)} cm Schnee</small> : null}</div>; })}</div> : <div className="nowcast-empty"><CloudOff size={16} aria-hidden="true" /> {weather?.nowcastStatus === "partial" ? "Regen-Nowcast teilweise geladen." : "Regen-Nowcast nicht verfügbar."}</div>}
+      <p className="nowcast-note"><Droplets size={13} aria-hidden="true" /> Modellbasierte Open-Meteo-15-Minuten-Prognose, kein Radarbild. 0,0 mm bleibt ein echter Messwert.</p>
+    </section>
+  );
+}
+
+function HourlyDetailTable({ weather }: { weather: WeatherSnapshot | null }) {
+  const hours = weather?.hourly ?? [];
+  return (
+    <details className="forecast-details">
+      <summary><span>Alle Stundenwerte</span><span className="forecast-details__count">{hours.length ? `${hours.length} Zeitpunkte` : "Noch keine Daten"}</span></summary>
+      {hours.length ? <div className="detail-table-scroll"><table className="detail-table"><caption className="sr-only">Alle verfügbaren Stundenwerte für {weather?.place.name ?? "den ausgewählten Ort"}</caption><thead><tr><th scope="col">Zeit</th><th scope="col">Wetter</th><th scope="col">Temperatur</th><th scope="col">Niederschlag</th><th scope="col">Regenrisiko</th><th scope="col">Wind</th></tr></thead><tbody>{hours.map((hour, index) => { const condition = weatherCondition(hour.weatherCode); return <tr key={`${hour.time}-${index}`}><td>{index === 0 ? "Jetzt · " : ""}{formatTime(hour.time, weather?.place.timezone)}</td><td><span className={`detail-weather detail-weather--${condition.tone}`}><WeatherIcon code={hour.weatherCode} isDay={weather?.current?.isDay ?? true} size={18} />{condition.label}</span></td><td>{formatTemperature(hour.temperatureC)}</td><td>{formatMillimeters(hour.precipitationMm)}</td><td>{Math.round(hour.precipitationProbabilityPct)}%</td><td>{Math.round(hour.windKmh)} km/h</td></tr>; })}</tbody></table></div> : <p className="detail-empty">Die Stundenwerte werden hier angezeigt, sobald ein Ort geladen ist.</p>}
+    </details>
+  );
+}
+
+function DailyDetailTable({ weather }: { weather: WeatherSnapshot | null }) {
+  const days = weather?.daily ?? [];
+  return (
+    <details className="forecast-details">
+      <summary><span>Alle Tageswerte</span><span className="forecast-details__count">{days.length ? `${days.length} Tage` : "Noch keine Daten"}</span></summary>
+      {days.length ? <div className="detail-table-scroll"><table className="detail-table"><caption className="sr-only">Alle verfügbaren Tageswerte für {weather?.place.name ?? "den ausgewählten Ort"}</caption><thead><tr><th scope="col">Tag</th><th scope="col">Wetter</th><th scope="col">Max.</th><th scope="col">Min.</th><th scope="col">Regenrisiko</th><th scope="col">Niederschlag</th><th scope="col">Sonne</th></tr></thead><tbody>{days.map((day, index) => { const condition = weatherCondition(day.weatherCode); return <tr key={day.date}><td>{index === 0 ? "Heute" : formatDay(day.date, weather?.place.timezone)}</td><td><span className={`detail-weather detail-weather--${condition.tone}`}><WeatherIcon code={day.weatherCode} size={18} />{condition.label}</span></td><td>{formatTemperature(day.maxC)}</td><td>{formatTemperature(day.minC)}</td><td>{Math.round(day.precipitationProbabilityPct)}%</td><td>{formatMillimeters(day.precipitationMm)}</td><td>{formatTime(day.sunrise, weather?.place.timezone)} – {formatTime(day.sunset, weather?.place.timezone)}</td></tr>; })}</tbody></table></div> : <p className="detail-empty">Die Tageswerte werden hier angezeigt, sobald ein Ort geladen ist.</p>}
+    </details>
+  );
 }
 
 type AddressSlotEditorProps = {
@@ -481,13 +547,13 @@ export default function Home() {
     const controller = new AbortController();
     weatherAbortRef.current = controller;
     setActivePlace(place);
-    setWeather({ place, fetchedAt: new Date().toISOString(), status: "loading", current: null, hourly: [], daily: [] });
+    setWeather({ place, fetchedAt: new Date().toISOString(), status: "loading", current: null, hourly: [], daily: [], nowcast: [], nowcastStatus: "unavailable" });
     try {
       const nextWeather = await fetchWeather(place, controller.signal);
       if (!controller.signal.aborted) { setWeather(nextWeather); setActivePlace(nextWeather.place); }
     } catch (error) {
       if (controller.signal.aborted) return;
-      setWeather({ place, fetchedAt: new Date().toISOString(), status: "unavailable", current: null, hourly: [], daily: [], error: error instanceof Error ? error.message : "Live-Daten nicht erreichbar" });
+      setWeather({ place, fetchedAt: new Date().toISOString(), status: "unavailable", current: null, hourly: [], daily: [], nowcast: [], nowcastStatus: "unavailable", error: error instanceof Error ? error.message : "Live-Daten nicht erreichbar" });
     }
   }, []);
 
@@ -622,14 +688,14 @@ export default function Home() {
   const currentTone = currentCondition?.tone ?? "unknown";
   const headline = currentCondition?.label ?? "Wetterübersicht";
   const locationCaption = activePlace ? `${countryFlags[activePlace.countryCode]} ${countryLabels[activePlace.countryCode]} · ${formatCoordinates(activePlace.latitude, activePlace.longitude)}` : "Noch kein Ort ausgewählt";
-  const visibleHourly = useMemo(() => weather?.hourly ?? [], [weather?.hourly]);
+  const visibleHourly = useMemo(() => (weather?.hourly ?? []).slice(0, 24), [weather?.hourly]);
   const visibleDaily = useMemo(() => weather?.daily ?? [], [weather?.daily]);
   const activeSlot = activePlace ? ((favoriteSlots.home?.id === activePlace.id ? "home" : favoriteSlots.work?.id === activePlace.id ? "work" : null) as FavoriteSlot | null) : null;
 
   return (
     <main className="weather-app">
       <header className="topbar">
-        <div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><Image className="brand-logo" src="/dashboard-logo.svg" alt="" width={38} height={38} priority /></div><div><p className="eyebrow">Persönliches Dashboard</p><p className="brand-title">Wetter</p></div></div>
+        <div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><span className="brand-logo" /></div><div><p className="eyebrow">Persönliches Dashboard</p><p className="brand-title">Wetter</p></div></div>
         <div className="topbar-actions"><div className={`topbar-status topbar-status--${syncStatus}`}><span className="topbar-status__icon" aria-hidden="true">{syncStatus === "ready" ? <Cloud size={15} /> : syncStatus === "loading" ? <RefreshCw size={15} className="spin" /> : <CloudOff size={15} />}</span>{syncStatusText(syncStatus)}</div>{syncStatus === "signed-out" ? <Link className="topbar-login-link" href="/login"><LogIn size={15} aria-hidden="true" /> Anmelden</Link> : null}</div>
       </header>
 
@@ -661,7 +727,11 @@ export default function Home() {
           {weather?.status === "partial" ? <p className="partial-note"><AlertTriangle size={14} aria-hidden="true" /> Einige Vorhersagebereiche fehlen momentan.</p> : null}
         </section>
 
+        <RainNowcastPanel weather={weather} />
+
         <section className="forecast-grid" aria-label="Vorhersage"><div className="forecast-panel hourly-panel"><div className="section-heading section-heading--compact"><div><p className="eyebrow">Nächste Stunden</p><h2>24-Stunden-Verlauf</h2></div><span className="section-count">lokale Zeit</span></div><div className="hourly-scroll">{visibleHourly.length ? visibleHourly.map((hour, index) => <div className={`hour-card ${index === 0 ? "hour-card--now" : ""}`} key={`${hour.time}-${index}`}><span className="hour-label">{index === 0 ? "Jetzt" : formatTime(hour.time, weather?.place.timezone)}</span><span className={`hour-icon hour-icon--${weatherTone(hour.weatherCode)}`}><WeatherIcon code={hour.weatherCode} isDay={weather?.current?.isDay ?? true} size={23} /></span><strong>{formatTemperature(hour.temperatureC)}</strong><span className="hour-rain"><Droplets size={12} aria-hidden="true" />{Math.round(hour.precipitationProbabilityPct)}%</span></div>) : <div className="forecast-empty">Die stündliche Vorhersage wird hier angezeigt, sobald ein Ort geladen ist.</div>}</div></div><div className="forecast-panel daily-panel"><div className="section-heading section-heading--compact"><div><p className="eyebrow">Ausblick</p><h2>Die nächsten 7 Tage</h2></div><span className="section-count">Temperatur & Niederschlag</span></div><div className="daily-list">{visibleDaily.length ? visibleDaily.map((day, index) => <div className={`daily-row ${index === 0 ? "daily-row--today" : ""}`} key={day.date}><span className="daily-date">{index === 0 ? "Heute" : formatDay(day.date, weather?.place.timezone)}</span><span className={`daily-icon daily-icon--${weatherTone(day.weatherCode)}`}><WeatherIcon code={day.weatherCode} size={22} /></span><span className="daily-temps"><strong>{formatTemperature(day.maxC)}</strong><span>{formatTemperature(day.minC)}</span></span><span className="daily-rain"><Droplets size={13} aria-hidden="true" />{Math.round(day.precipitationProbabilityPct)}%</span><span className="daily-amount">{day.precipitationMm.toFixed(1)} mm</span></div>) : <div className="forecast-empty">Der 7-Tage-Ausblick wird hier angezeigt, sobald ein Ort geladen ist.</div>}</div></div></section>
+
+        <section className="forecast-details-stack" aria-label="Wetterdetails"><HourlyDetailTable weather={weather} /><DailyDetailTable weather={weather} /></section>
 
         <footer className="data-footer"><span><span className="footer-dot" aria-hidden="true" /> Open-Meteo · Vorhersagemodelle</span><span>{weather?.status === "loading" ? "Abruf läuft …" : weather?.fetchedAt ? `Abgerufen ${new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" }).format(new Date(weather.fetchedAt))} Uhr` : "Noch keine Live-Daten"}</span><span><RefreshCw size={12} aria-hidden="true" /> Automatisch alle 5 Minuten</span><span>{weather?.place.timezone ?? "Zeitzone folgt dem Ort"}</span></footer>
       </div>
