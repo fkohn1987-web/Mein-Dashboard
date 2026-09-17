@@ -17,6 +17,7 @@ import {
   Droplets,
   House,
   LocateFixed,
+  LogIn,
   MapPin,
   Moon,
   RefreshCw,
@@ -29,6 +30,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import Link from "next/link";
 
 type CountryCode = "DE" | "IT" | "CH" | "AT";
 type PlaceCountry = CountryCode | "LOC";
@@ -506,7 +508,7 @@ export default function Home() {
     <main className="weather-app">
       <header className="topbar">
         <div className="brand-lockup"><div className="brand-mark" aria-hidden="true"><CloudSun size={22} strokeWidth={1.8} /></div><div><p className="eyebrow">Persönliches Dashboard</p><p className="brand-title">Wetter</p></div></div>
-        <div className={`topbar-status topbar-status--${syncStatus}`}><span className="topbar-status__icon" aria-hidden="true">{syncStatus === "ready" ? <Cloud size={15} /> : syncStatus === "loading" ? <RefreshCw size={15} className="spin" /> : <CloudOff size={15} />}</span>{syncStatusText(syncStatus)}</div>
+        <div className="topbar-actions"><div className={`topbar-status topbar-status--${syncStatus}`}><span className="topbar-status__icon" aria-hidden="true">{syncStatus === "ready" ? <Cloud size={15} /> : syncStatus === "loading" ? <RefreshCw size={15} className="spin" /> : <CloudOff size={15} />}</span>{syncStatusText(syncStatus)}</div>{syncStatus === "signed-out" ? <Link className="topbar-login-link" href="/login"><LogIn size={15} aria-hidden="true" /> Anmelden</Link> : null}</div>
       </header>
 
       <div className="dashboard-shell">
