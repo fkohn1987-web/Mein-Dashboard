@@ -1,0 +1,28 @@
+{
+  "family": "Lucide",
+  "source": "https://lucide.dev/icons/",
+  "license": "ISC for Lucide icons; MIT for inherited Feather icons",
+  "runtime": "bundled via lucide-react; no remote icon URLs",
+  "selected": [
+    "alert-triangle",
+    "arrow-up",
+    "cloud",
+    "cloud-drizzle",
+    "cloud-fog",
+    "cloud-lightning",
+    "cloud-rain",
+    "cloud-snow",
+    "cloud-sun",
+    "compass",
+    "droplets",
+    "locate-fixed",
+    "map-pin",
+    "moon",
+    "refresh-cw",
+    "search",
+    "star",
+    "sun",
+    "wind",
+    "x"
+  ]
+}
