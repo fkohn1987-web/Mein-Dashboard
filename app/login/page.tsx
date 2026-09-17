@@ -8,15 +8,20 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import Link from "next/link";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { chatGPTSignInPath, getChatGPTUser } from "@/app/chatgpt-auth";
 
 export const dynamic = "force-dynamic";
+const PRIVATE_SITE_URL = "https://persoenliches-wetter-dashboard.eisenbahnerflo.chatgpt.site";
 
 export default async function LoginPage() {
   const user = await getChatGPTUser();
   if (user) redirect("/");
+  const hostname = (await headers()).get("host")?.split(":")[0].toLowerCase() ?? "";
+  const supportsChatGPTSignIn = hostname === "localhost" || hostname === "127.0.0.1" || hostname.endsWith(".chatgpt.site");
+  const signInHref = supportsChatGPTSignIn ? chatGPTSignInPath("/") : `${PRIVATE_SITE_URL}/login`;
 
   return (
     <main className="login-page">
@@ -45,8 +50,8 @@ export default async function LoginPage() {
             gespeichert und auf deinen Geräten synchronisiert werden.
           </p>
 
-          <a className="login-button" href={chatGPTSignInPath("/")}>
-            Mit ChatGPT anmelden
+          <a className="login-button" href={signInHref}>
+            {supportsChatGPTSignIn ? "Mit ChatGPT anmelden" : "Zur privaten Anmeldung"}
             <ArrowRight size={17} aria-hidden="true" />
           </a>
 
@@ -82,8 +87,9 @@ export default async function LoginPage() {
         </div>
 
         <p className="login-footer">
-          Die Anmeldung erfolgt über die sichere Sites-/ChatGPT-Anmeldung. Das
-          Dashboard speichert keine Passwörter.
+          {supportsChatGPTSignIn
+            ? "Die Anmeldung erfolgt über die sichere Sites-/ChatGPT-Anmeldung. Das Dashboard speichert keine Passwörter."
+            : "Die geräteübergreifende Anmeldung ist auf der privaten Sites-Version verfügbar. Das Dashboard speichert keine Passwörter."}
         </p>
         <Link className="login-back-link" href="/">
           Zur Wetterübersicht
