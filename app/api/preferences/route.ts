@@ -16,9 +16,10 @@ type Place = {
 };
 
 type PreferencesPayload = {
-  schemaVersion: 2;
+  schemaVersion: 3;
   home: Place | null;
   work: Place | null;
+  favorites: Place[];
   activePlaceId: string | null;
 };
 
@@ -33,6 +34,7 @@ type D1DatabaseLike = {
 };
 
 const COUNTRY_CODES: PlaceCountry[] = ["DE", "IT", "CH", "AT", "LOC"];
+const MAX_FAVORITES = 10;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -53,12 +55,23 @@ function isPlace(value: unknown): value is Place {
   );
 }
 
+function dedupePlaces(places: Place[]) {
+  const seen = new Set<string>();
+  return places.filter((place) => {
+    if (seen.has(place.id)) return false;
+    seen.add(place.id);
+    return true;
+  }).slice(0, MAX_FAVORITES);
+}
+
 function parsePayload(value: unknown): PreferencesPayload | null {
-  if (!isRecord(value) || value.schemaVersion !== 2) return null;
+  if (!isRecord(value)) return null;
+  if (value.schemaVersion !== 3 && value.schemaVersion !== 2) return null;
   const home = value.home === null || value.home === undefined ? null : isPlace(value.home) ? value.home : null;
   const work = value.work === null || value.work === undefined ? null : isPlace(value.work) ? value.work : null;
+  const favorites = value.schemaVersion === 3 && Array.isArray(value.favorites) ? dedupePlaces(value.favorites.filter(isPlace)) : [];
   const activePlaceId = typeof value.activePlaceId === "string" ? value.activePlaceId : null;
-  return { schemaVersion: 2, home, work, activePlaceId };
+  return { schemaVersion: 3, home, work, favorites, activePlaceId };
 }
 
 async function getD1(): Promise<D1DatabaseLike | null> {
@@ -71,7 +84,7 @@ async function getD1(): Promise<D1DatabaseLike | null> {
 }
 
 function emptyPayload(): PreferencesPayload {
-  return { schemaVersion: 2, home: null, work: null, activePlaceId: null };
+  return { schemaVersion: 3, home: null, work: null, favorites: [], activePlaceId: null };
 }
 
 function invalidPayloadResponse() {
