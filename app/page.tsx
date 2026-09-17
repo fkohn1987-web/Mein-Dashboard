@@ -122,9 +122,12 @@ type ModelContextLike = {
 
 type ModelContextDocument = Document & { modelContext?: ModelContextLike };
 type WeatherTone = "clear" | "cloud" | "rain" | "storm" | "snow" | "fog" | "unknown";
+type WeatherIconKind = "sun" | "cloud-sun" | "cloud" | "drizzle" | "rain" | "snow" | "storm" | "fog" | "unknown";
+type WeatherCondition = { tone: WeatherTone; label: string; icon: WeatherIconKind };
 
 const STORAGE_KEY = "personal-dashboard.weather.v3";
 const MAX_FAVORITES = 10;
+const WEATHER_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const GEOCODING_URL = "https://geocoding-api.open-meteo.com/v1/search";
 const COUNTRY_CODES: CountryCode[] = ["DE", "IT", "CH", "AT"];
@@ -143,16 +146,6 @@ const countryFlags: Record<PlaceCountry, string> = {
   CH: "🇨🇭",
   AT: "🇦🇹",
   LOC: "⌾",
-};
-
-const weatherCopy: Record<WeatherTone, string> = {
-  clear: "Klar",
-  cloud: "Bewölkt",
-  rain: "Regen",
-  storm: "Gewitter",
-  snow: "Schnee",
-  fog: "Nebel",
-  unknown: "Wetterzustand unbekannt",
 };
 
 function emptyFavoriteSlots(): FavoriteSlots {
@@ -239,19 +232,47 @@ function stringAt(value: unknown, index: number, fallback = "") {
   return typeof item === "string" ? item : fallback;
 }
 
+function weatherCondition(code: number): WeatherCondition {
+  switch (code) {
+    case 0: return { tone: "clear", label: "Klar", icon: "sun" };
+    case 1: return { tone: "clear", label: "Überwiegend klar", icon: "sun" };
+    case 2: return { tone: "cloud", label: "Teilweise bewölkt", icon: "cloud-sun" };
+    case 3: return { tone: "cloud", label: "Bedeckt", icon: "cloud" };
+    case 45:
+    case 48: return { tone: "fog", label: "Nebel", icon: "fog" };
+    case 51:
+    case 53:
+    case 55: return { tone: "rain", label: "Nieselregen", icon: "drizzle" };
+    case 56:
+    case 57: return { tone: "rain", label: "Gefrierender Nieselregen", icon: "drizzle" };
+    case 61:
+    case 63:
+    case 65: return { tone: "rain", label: "Regen", icon: "rain" };
+    case 66:
+    case 67: return { tone: "rain", label: "Gefrierender Regen", icon: "rain" };
+    case 71:
+    case 73:
+    case 75: return { tone: "snow", label: "Schneefall", icon: "snow" };
+    case 77: return { tone: "snow", label: "Schneekörner", icon: "snow" };
+    case 80:
+    case 81:
+    case 82: return { tone: "rain", label: "Regenschauer", icon: "rain" };
+    case 85:
+    case 86: return { tone: "snow", label: "Schneeschauer", icon: "snow" };
+    case 95: return { tone: "storm", label: "Gewitter", icon: "storm" };
+    case 96:
+    case 99: return { tone: "storm", label: "Gewitter mit Hagel", icon: "storm" };
+    default: return { tone: "unknown", label: "Wetterzustand unbekannt", icon: "unknown" };
+  }
+}
+
 function weatherTone(code: number): WeatherTone {
-  if (code === 0 || code === 1) return "clear";
-  if (code === 2 || code === 3) return "cloud";
-  if (code === 45 || code === 48) return "fog";
-  if (code >= 51 && code <= 67) return "rain";
-  if (code >= 71 && code <= 86) return "snow";
-  if (code >= 95) return "storm";
-  return "unknown";
+  return weatherCondition(code).tone;
 }
 
 function WeatherIcon({ code, isDay = true, size = 24 }: { code: number; isDay?: boolean; size?: number }) {
-  const tone = weatherTone(code);
-  const Icon = tone === "clear" ? (isDay ? Sun : Moon) : tone === "rain" ? (code <= 57 ? CloudDrizzle : CloudRain) : tone === "storm" ? CloudLightning : tone === "snow" ? CloudSnow : tone === "fog" ? CloudFog : tone === "cloud" ? CloudSun : Cloud;
+  const iconKind = weatherCondition(code).icon;
+  const Icon = iconKind === "sun" ? (isDay ? Sun : Moon) : iconKind === "cloud-sun" ? CloudSun : iconKind === "cloud" ? Cloud : iconKind === "drizzle" ? CloudDrizzle : iconKind === "rain" ? CloudRain : iconKind === "storm" ? CloudLightning : iconKind === "snow" ? CloudSnow : iconKind === "fog" ? CloudFog : Cloud;
   return <Icon aria-hidden="true" size={size} strokeWidth={1.8} />;
 }
 
@@ -315,7 +336,7 @@ function buildForecastUrl(place: Place) {
 }
 
 async function fetchWeather(place: Place, signal?: AbortSignal): Promise<WeatherSnapshot> {
-  const response = await fetch(buildForecastUrl(place), { signal });
+  const response = await fetch(buildForecastUrl(place), { signal, cache: "no-store" });
   if (!response.ok) throw new Error("Live-Daten nicht erreichbar");
   const payload = (await response.json()) as Record<string, unknown>;
   const current = payload.current as Record<string, unknown> | undefined;
@@ -565,6 +586,12 @@ export default function Home() {
   }, [countryFilter, hasHydrated, query]);
 
   useEffect(() => {
+    if (!hasHydrated || !activePlace) return;
+    const interval = window.setInterval(() => { void loadPlace(activePlace); }, WEATHER_REFRESH_INTERVAL_MS);
+    return () => window.clearInterval(interval);
+  }, [activePlace, hasHydrated, loadPlace]);
+
+  useEffect(() => {
     actionsRef.current = {
       selectPlace,
       toggleFavorite,
@@ -591,8 +618,9 @@ export default function Home() {
     return () => controller.abort();
   }, [activePlace, favorites, savedPlaces]);
 
-  const currentTone = weather?.current ? weatherTone(weather.current.weatherCode) : "unknown";
-  const headline = weather?.current ? weatherCopy[weatherTone(weather.current.weatherCode)] : "Wetterübersicht";
+  const currentCondition = weather?.current ? weatherCondition(weather.current.weatherCode) : null;
+  const currentTone = currentCondition?.tone ?? "unknown";
+  const headline = currentCondition?.label ?? "Wetterübersicht";
   const locationCaption = activePlace ? `${countryFlags[activePlace.countryCode]} ${countryLabels[activePlace.countryCode]} · ${formatCoordinates(activePlace.latitude, activePlace.longitude)}` : "Noch kein Ort ausgewählt";
   const visibleHourly = useMemo(() => weather?.hourly ?? [], [weather?.hourly]);
   const visibleDaily = useMemo(() => weather?.daily ?? [], [weather?.daily]);
@@ -635,7 +663,7 @@ export default function Home() {
 
         <section className="forecast-grid" aria-label="Vorhersage"><div className="forecast-panel hourly-panel"><div className="section-heading section-heading--compact"><div><p className="eyebrow">Nächste Stunden</p><h2>24-Stunden-Verlauf</h2></div><span className="section-count">lokale Zeit</span></div><div className="hourly-scroll">{visibleHourly.length ? visibleHourly.map((hour, index) => <div className={`hour-card ${index === 0 ? "hour-card--now" : ""}`} key={`${hour.time}-${index}`}><span className="hour-label">{index === 0 ? "Jetzt" : formatTime(hour.time, weather?.place.timezone)}</span><span className={`hour-icon hour-icon--${weatherTone(hour.weatherCode)}`}><WeatherIcon code={hour.weatherCode} isDay={weather?.current?.isDay ?? true} size={23} /></span><strong>{formatTemperature(hour.temperatureC)}</strong><span className="hour-rain"><Droplets size={12} aria-hidden="true" />{Math.round(hour.precipitationProbabilityPct)}%</span></div>) : <div className="forecast-empty">Die stündliche Vorhersage wird hier angezeigt, sobald ein Ort geladen ist.</div>}</div></div><div className="forecast-panel daily-panel"><div className="section-heading section-heading--compact"><div><p className="eyebrow">Ausblick</p><h2>Die nächsten 7 Tage</h2></div><span className="section-count">Temperatur & Niederschlag</span></div><div className="daily-list">{visibleDaily.length ? visibleDaily.map((day, index) => <div className={`daily-row ${index === 0 ? "daily-row--today" : ""}`} key={day.date}><span className="daily-date">{index === 0 ? "Heute" : formatDay(day.date, weather?.place.timezone)}</span><span className={`daily-icon daily-icon--${weatherTone(day.weatherCode)}`}><WeatherIcon code={day.weatherCode} size={22} /></span><span className="daily-temps"><strong>{formatTemperature(day.maxC)}</strong><span>{formatTemperature(day.minC)}</span></span><span className="daily-rain"><Droplets size={13} aria-hidden="true" />{Math.round(day.precipitationProbabilityPct)}%</span><span className="daily-amount">{day.precipitationMm.toFixed(1)} mm</span></div>) : <div className="forecast-empty">Der 7-Tage-Ausblick wird hier angezeigt, sobald ein Ort geladen ist.</div>}</div></div></section>
 
-        <footer className="data-footer"><span><span className="footer-dot" aria-hidden="true" /> Open-Meteo · Vorhersagemodelle</span><span>{weather?.fetchedAt ? `Abgerufen ${new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" }).format(new Date(weather.fetchedAt))} Uhr` : "Noch keine Live-Daten"}</span><span>{weather?.place.timezone ?? "Zeitzone folgt dem Ort"}</span></footer>
+        <footer className="data-footer"><span><span className="footer-dot" aria-hidden="true" /> Open-Meteo · Vorhersagemodelle</span><span>{weather?.fetchedAt ? `Abgerufen ${new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" }).format(new Date(weather.fetchedAt))} Uhr` : "Noch keine Live-Daten"}</span><span><RefreshCw size={12} aria-hidden="true" /> Automatisch alle 5 Minuten</span><span>{weather?.place.timezone ?? "Zeitzone folgt dem Ort"}</span></footer>
       </div>
     </main>
   );
