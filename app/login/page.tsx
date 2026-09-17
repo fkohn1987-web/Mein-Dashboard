@@ -1,12 +1,12 @@
 import {
   ArrowRight,
   Check,
-  CloudSun,
   House,
   LockKeyhole,
   MapPin,
   ShieldCheck,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -31,7 +31,7 @@ export default async function LoginPage() {
       <section className="login-shell" aria-labelledby="login-title">
         <div className="login-brand">
           <span className="login-brand__mark" aria-hidden="true">
-            <CloudSun size={25} strokeWidth={1.8} />
+            <Image className="login-brand__logo" src="/dashboard-logo.svg" alt="" width={43} height={43} priority />
           </span>
           <div>
             <p className="eyebrow">Persönliches Dashboard</p>

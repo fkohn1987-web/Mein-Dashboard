@@ -1,11 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Wetter Dashboard">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Persönliches Dashboard">
   <defs>
-    <linearGradient id="bg" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#243b5a"/>
-      <stop offset="1" stop-color="#101724"/>
+    <linearGradient id="bg" x1="12" y1="8" x2="84" y2="88" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#223d5c"/>
+      <stop offset="1" stop-color="#101923"/>
+    </linearGradient>
+    <linearGradient id="core" x1="35" y1="31" x2="64" y2="67" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ffc85a"/>
+      <stop offset="1" stop-color="#e5a83d"/>
+    </linearGradient>
+    <linearGradient id="node" x1="18" y1="18" x2="78" y2="79" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#bce4ff"/>
+      <stop offset="1" stop-color="#74b4ed"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="18" fill="url(#bg)"/>
-  <circle cx="39" cy="24" r="9" fill="#ffc85a"/>
-  <path d="M18 45.5h25.5a8.5 8.5 0 0 0 .2-17 12.3 12.3 0 0 0-23.7 3.6A6.8 6.8 0 0 0 18 45.5Z" fill="#c4e4ff" stroke="#80b9ea" stroke-width="2.5" stroke-linejoin="round"/>
+  <rect x="3.5" y="3.5" width="89" height="89" rx="25" fill="url(#bg)" stroke="#456889" stroke-opacity=".52"/>
+  <g fill="none" stroke="#6c9ac5" stroke-linecap="round" stroke-width="2.5">
+    <path d="M48 31v9M65 48h-9M48 65v-9M31 48h9"/>
+  </g>
+  <g fill="url(#node)" stroke="#d6efff" stroke-opacity=".48" stroke-width="1.2">
+    <rect x="39" y="14" width="18" height="17" rx="6"/>
+    <rect x="65" y="39" width="17" height="18" rx="6"/>
+    <rect x="39" y="65" width="18" height="17" rx="6"/>
+    <rect x="14" y="39" width="17" height="18" rx="6"/>
+  </g>
+  <rect x="36" y="36" width="24" height="24" rx="8" fill="url(#core)" stroke="#ffe6a6" stroke-opacity=".72" stroke-width="1.4" transform="rotate(45 48 48)"/>
+  <circle cx="48" cy="48" r="5.2" fill="#132335" stroke="#fff1c5" stroke-opacity=".8" stroke-width="1.4"/>
+  <path d="M48 39v5M57 48h-5M48 57v-5M39 48h5" stroke="#fff1c5" stroke-width="1.6" stroke-linecap="round"/>
 </svg>
